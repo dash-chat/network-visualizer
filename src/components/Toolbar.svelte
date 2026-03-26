@@ -8,7 +8,7 @@
     resetSimulation,
     openSetup,
   } from '../stores/ui-state';
-  import { createPeer, toggleIntranetShutdown } from '../simulation/engine';
+  import { createPeer } from '../simulation/engine';
 
   let speed = $state(1);
   let showAddPeer = $state(false);
@@ -35,9 +35,6 @@
     showAddPeer = false;
   }
 
-  function handleToggleIntranet() {
-    simulationState.update(s => toggleIntranetShutdown(s));
-  }
 </script>
 
 <div class="flex items-center gap-3 px-4 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border)]">
@@ -100,14 +97,6 @@
   {/if}
 
   <div class="flex-1"></div>
-
-  <!-- Intranet shutdown toggle -->
-  <button
-    class="px-3 py-1 rounded text-sm font-medium transition-colors {$simulationState.intranetShutdown ? 'bg-[var(--error)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)]'}"
-    onclick={handleToggleIntranet}
-  >
-    {$simulationState.intranetShutdown ? 'Internet Shutdown ON' : 'Internet Shutdown'}
-  </button>
 
   <!-- Add peer -->
   {#if showAddPeer}

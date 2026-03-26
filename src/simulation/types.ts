@@ -96,6 +96,7 @@ export interface Peer {
   transports: Transport[];
   supportedSPs: SPType[];
   online: boolean;
+  shutdown: boolean;        // ISP-only: disconnected from dash-server (internet shutdown)
   publicKey: string;        // hex: Ed25519 public key (p2panda author identity)
   privateKey: string;       // hex: Ed25519 private key (for signing p2panda entries)
   appStore: AppStore;
@@ -138,7 +139,6 @@ export interface SimulationState {
   tick: number;
   running: boolean;
   speed: number;
-  intranetShutdown: boolean;
   topicPerGroup: boolean;
 }
 
@@ -309,12 +309,24 @@ export const TRANSPORT_STYLES: Record<Transport, { label: string; dash: number[]
 
 // --- Layout constants (shared by engine and renderer) ---
 
-export const CLOUD_ZONE_HEIGHT = 70;   // top band: dash-servers
-export const ISP_BAND_TOP = CLOUD_ZONE_HEIGHT;
-export const ISP_BAND_HEIGHT = 70;
-export const ISP_BAND_BOTTOM = ISP_BAND_TOP + ISP_BAND_HEIGHT; // 140
-export const DEVICE_AREA_TOP = ISP_BAND_BOTTOM + 20;           // 160
+// Layout: (0,0) = center of canvas. Y increases downward.
+// Cloud and ISP bands are pinned to screen top by the renderer.
+// These heights define the band sizes; the renderer computes Y from screen edge.
+export const CLOUD_BAND_HEIGHT = 75;
+export const ISP_BAND_HEIGHT = 75;
+export const DEVICE_AREA_GAP = 15;   // gap between ISP band bottom and device area
 
-export const SERVER_BOUNDS = { minX: 60, maxX: 940, minY: 15, maxY: CLOUD_ZONE_HEIGHT - 15 };
-export const ISP_BOUNDS = { minX: 60, maxX: 940, minY: ISP_BAND_TOP + 10, maxY: ISP_BAND_BOTTOM - 10 };
-export const DEVICE_BOUNDS = { minX: 60, maxX: 940, minY: DEVICE_AREA_TOP, maxY: 660 };
+// Bounds are set dynamically by the renderer via setScreenSize().
+// Default assumes ~660px canvas height (half = 330).
+let _halfH = 330;
+export function setScreenHalfHeight(h: number) { _halfH = h; }
+
+export function getCloudTop() { return -_halfH; }
+export function getCloudBottom() { return -_halfH + CLOUD_BAND_HEIGHT; }
+export function getISPTop() { return -_halfH + CLOUD_BAND_HEIGHT; }
+export function getISPBottom() { return -_halfH + CLOUD_BAND_HEIGHT + ISP_BAND_HEIGHT; }
+export function getDeviceTop() { return -_halfH + CLOUD_BAND_HEIGHT + ISP_BAND_HEIGHT + DEVICE_AREA_GAP; }
+
+export const SERVER_BOUNDS = { get minX() { return -440; }, get maxX() { return 440; }, get minY() { return getCloudTop() + 5; }, get maxY() { return getCloudBottom() - 5; } };
+export const ISP_BOUNDS = { get minX() { return -440; }, get maxX() { return 440; }, get minY() { return getISPTop() + 5; }, get maxY() { return getISPBottom() - 5; } };
+export const DEVICE_BOUNDS = { get minX() { return -440; }, get maxX() { return 440; }, get minY() { return getDeviceTop(); }, get maxY() { return _halfH; } };

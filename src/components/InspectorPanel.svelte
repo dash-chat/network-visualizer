@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { simulationState, selectedPeerId, selectedPeer, showInspector } from '../stores/ui-state';
-  import { SP_DEFINITIONS, OPERATION_COLORS, getAllOperations } from '../simulation/types';
+  import { simulationState, selectedPeerId, selectedPeer } from '../stores/ui-state';
+  import { SP_DEFINITIONS, OPERATION_COLORS, type SPType, type Transport } from '../simulation/types';
   import { topicColor } from '../simulation/crypto';
+  import { updatePeerSPs, updatePeerTransports, updatePeerZone, removePeer } from '../simulation/engine';
   import ActionPanel from './ActionPanel.svelte';
 
   let activeTab = $state<'info' | 'app-store' | 'relay-store'>('info');
@@ -18,11 +19,57 @@
     type === 'message-server' ? '\u{1F5A5}' : '\u{1F4F1}';
 
   const isPeerDevice = (type: string) => type === 'peer' || type === 'starlink';
+  const hasRelayStore = (type: string) => type !== 'isp' && type !== 'router';
+
+  // Config helpers
+  const spList = Object.values(SP_DEFINITIONS);
+  const allTransports: Transport[] = ['internet', 'lan', 'bluetooth', 'lora'];
+  const allZones = [
+    { value: 'global' as const, label: 'Global' },
+    { value: 'intranet' as const, label: 'Intranet' },
+    { value: 'local' as const, label: 'Local' },
+  ];
+
+  function toggleSP(peerId: string, sp: SPType) {
+    simulationState.update(s => {
+      const peer = s.peers.get(peerId);
+      if (!peer) return s;
+      const sps = peer.supportedSPs.includes(sp)
+        ? peer.supportedSPs.filter(m => m !== sp)
+        : [...peer.supportedSPs, sp];
+      return updatePeerSPs(s, peerId, sps);
+    });
+  }
+
+  function toggleTransport(peerId: string, transport: Transport) {
+    simulationState.update(s => {
+      const peer = s.peers.get(peerId);
+      if (!peer) return s;
+      const transports = peer.transports.includes(transport)
+        ? peer.transports.filter(t => t !== transport)
+        : [...peer.transports, transport];
+      return updatePeerTransports(s, peerId, transports);
+    });
+  }
+
+  function setZone(peerId: string, zone: 'global' | 'intranet' | 'local') {
+    simulationState.update(s => updatePeerZone(s, peerId, zone));
+  }
+
+  function handleRemovePeer(peerId: string) {
+    simulationState.update(s => removePeer(s, peerId));
+    selectedPeerId.set(null);
+  }
+
+  // Connections involving this peer
+  let peerConnections = $derived(
+    $simulationState.connections.filter(c => c.from === $selectedPeerId || c.to === $selectedPeerId)
+  );
 </script>
 
 {#if $selectedPeer}
   {@const peer = $selectedPeer}
-  <div class="w-96 shrink-0 bg-[var(--bg-secondary)] border-l border-[var(--border)] flex flex-col h-full">
+  <div class="w-96 bg-[var(--bg-secondary)]/95 backdrop-blur-sm border-l border-[var(--border)] flex flex-col h-full shadow-xl">
     <!-- Header -->
     <div class="p-3 border-b border-[var(--border)] flex items-center justify-between shrink-0">
       <div class="flex items-center gap-2">
@@ -30,10 +77,16 @@
         <h3 class="text-sm font-bold text-[var(--text-primary)]">{peer.label}</h3>
         <span class="w-2 h-2 rounded-full {peer.online ? 'bg-[var(--success)]' : 'bg-[var(--error)]'}"></span>
       </div>
-      <button
-        class="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-lg leading-none"
-        onclick={close}
-      >x</button>
+      <div class="flex items-center gap-2">
+        <button
+          class="text-[9px] text-[var(--text-muted)] hover:text-[var(--error)]"
+          onclick={() => handleRemovePeer(peer.id)}
+        >remove</button>
+        <button
+          class="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-lg leading-none"
+          onclick={close}
+        >x</button>
+      </div>
     </div>
 
     <!-- Tabs -->
@@ -48,10 +101,12 @@
           onclick={() => activeTab = 'app-store'}
         >Operations</button>
       {/if}
-      <button
-        class="flex-1 py-1.5 text-[10px] font-semibold uppercase transition-colors {activeTab === 'relay-store' ? 'text-lime-400 border-b-2 border-lime-400' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}"
-        onclick={() => activeTab = 'relay-store'}
-      >Relay Store</button>
+      {#if hasRelayStore(peer.type)}
+        <button
+          class="flex-1 py-1.5 text-[10px] font-semibold uppercase transition-colors {activeTab === 'relay-store' ? 'text-lime-400 border-b-2 border-lime-400' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}"
+          onclick={() => activeTab = 'relay-store'}
+        >Relay Store</button>
+      {/if}
     </div>
 
     <!-- Tab content (scrollable) -->
@@ -65,24 +120,54 @@
             <span class="text-[var(--text-primary)]">{peer.type}</span>
             <span class="text-[var(--text-muted)]">Status:</span>
             <span class="{peer.online ? 'text-[var(--success)]' : 'text-[var(--error)]'}">{peer.online ? 'Online' : 'Offline'}</span>
-            <span class="text-[var(--text-muted)]">Zone:</span>
-            <span class="text-[var(--text-primary)]">{peer.zone}</span>
-            <span class="text-[var(--text-muted)]">Transports:</span>
-            <span class="text-[var(--text-primary)]">{peer.transports.join(', ')}</span>
-            {#if peer.supportedSPs.length > 0}
-              <span class="text-[var(--text-muted)]">SPs:</span>
-              <div class="flex gap-1 flex-wrap">
-                {#each peer.supportedSPs as msp}
-                  <span class="text-[9px] px-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                    {SP_DEFINITIONS[msp].name.split(' ')[0]}
-                  </span>
-                {/each}
-              </div>
-            {/if}
             {#if isPeerDevice(peer.type)}
               <span class="text-[var(--text-muted)]">Public Key:</span>
               <span class="text-[9px] font-mono text-[var(--text-secondary)] truncate">{peer.publicKey.slice(0, 16)}...</span>
             {/if}
+          </div>
+        </div>
+
+        <!-- Configuration -->
+        <div class="p-3 border-b border-[var(--border)]">
+          <h4 class="text-xs font-bold uppercase text-[var(--text-muted)] mb-2">Configuration</h4>
+
+          <!-- Sync Protocols -->
+          <div class="mb-2">
+            <span class="text-[10px] text-[var(--text-muted)]">Sync Protocols</span>
+            <div class="flex gap-1 mt-1">
+              {#each spList as sp}
+                <button
+                  class="text-[9px] px-1.5 py-0.5 rounded transition-colors {peer.supportedSPs.includes(sp.type) ? 'bg-[var(--accent)]/30 text-[var(--accent)]' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'}"
+                  onclick={() => toggleSP(peer.id, sp.type)}
+                >{sp.name}</button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Transports -->
+          <div class="mb-2">
+            <span class="text-[10px] text-[var(--text-muted)]">Transports</span>
+            <div class="flex gap-1 mt-1">
+              {#each allTransports as transport}
+                <button
+                  class="text-[9px] px-1.5 py-0.5 rounded transition-colors {peer.transports.includes(transport) ? 'bg-[var(--success)]/30 text-[var(--success)]' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'}"
+                  onclick={() => toggleTransport(peer.id, transport)}
+                >{transport}</button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Zone -->
+          <div>
+            <span class="text-[10px] text-[var(--text-muted)]">Zone</span>
+            <div class="flex gap-1 mt-1">
+              {#each allZones as zone}
+                <button
+                  class="text-[9px] px-1.5 py-0.5 rounded transition-colors {peer.zone === zone.value ? 'bg-purple-500/30 text-purple-400' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'}"
+                  onclick={() => setZone(peer.id, zone.value)}
+                >{zone.label}</button>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -117,7 +202,28 @@
           </div>
         {/if}
 
-        <!-- Known Topics summary -->
+        <!-- Active Connections -->
+        <div class="p-3 border-b border-[var(--border)]">
+          <h4 class="text-xs font-bold uppercase text-[var(--text-muted)] mb-2">Connections ({peerConnections.length})</h4>
+          {#each peerConnections as conn}
+            {@const otherId = conn.from === peer.id ? conn.to : conn.from}
+            {@const other = $simulationState.peers.get(otherId)}
+            {#if other}
+              <div class="flex items-center justify-between text-[10px] mb-1">
+                <div class="flex items-center gap-1">
+                  <span>{iconFor(other.type)}</span>
+                  <span class="text-[var(--text-secondary)]">{other.label}</span>
+                </div>
+                <span class="text-[var(--text-muted)]">{conn.transport}</span>
+              </div>
+            {/if}
+          {/each}
+          {#if peerConnections.length === 0}
+            <span class="text-[10px] text-[var(--text-muted)]">No active connections</span>
+          {/if}
+        </div>
+
+        <!-- Known Topics -->
         {#if isPeerDevice(peer.type)}
           <div class="p-3 border-b border-[var(--border)]">
             <h4 class="text-xs font-bold uppercase text-[var(--text-muted)] mb-2">Known Topics</h4>
@@ -159,7 +265,6 @@
                   {#each authorLog.entries as entry}
                     {@const op = entry.operation}
                     <div class="mb-1.5 p-2 rounded bg-[var(--bg-primary)] border-l-2" style="border-color: {OPERATION_COLORS[op.type]}">
-                      <!-- Header: seqNum, type, delivery status -->
                       <div class="flex items-center justify-between mb-1">
                         <div class="flex items-center gap-1.5">
                           <span class="text-[9px] font-mono text-[var(--text-muted)]">#{entry.seqNum}</span>
@@ -169,16 +274,13 @@
                           {op.delivered ? '✓ delivered' : `${op.receivedBy.length}/${op.recipients.length + 1} received`}
                         </span>
                       </div>
-                      <!-- Content -->
                       <div class="text-[10px] text-[var(--text-primary)] mb-1">{op.content}</div>
-                      <!-- Sender & recipients -->
                       <div class="text-[9px] text-[var(--text-muted)]">
                         From: {$simulationState.peers.get(op.sender)?.label ?? op.sender}
                         {#if op.recipients.length > 0}
                           → {op.recipients.map(r => $simulationState.peers.get(r)?.label ?? r).join(', ')}
                         {/if}
                       </div>
-                      <!-- p2panda entry metadata -->
                       <div class="text-[8px] text-[var(--text-muted)] font-mono mt-1 pt-1 border-t border-[var(--border)]">
                         <div>payload_hash: {entry.payloadHash.slice(0, 24)}...</div>
                         <div>payload_size: {entry.payloadSize} bytes</div>

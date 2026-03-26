@@ -1,8 +1,14 @@
 import type { SimulationState } from './types';
+import { getCloudTop, getCloudBottom, getISPTop, getISPBottom } from './types';
 import {
   createInitialState, createPeer, addContact, createGroup,
   resetIdCounter,
 } from './engine';
+
+/** Center Y of the cloud band */
+function cloudY() { return (getCloudTop() + getCloudBottom()) / 2; }
+/** Center Y of the ISP band */
+function ispY() { return (getISPTop() + getISPBottom()) / 2; }
 
 export interface Scenario {
   id: string;
@@ -19,15 +25,12 @@ export const SCENARIOS: Scenario[] = [
     build() {
       resetIdCounter();
       let state = createInitialState();
-      // ISP
-      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
-      // Dash Server
-      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
-      // Peers
-      let r = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 300, y: 350 } });
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 0, y: ispY() } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 0, y: cloudY() } }).state;
+      let r = createPeer(state, { label: 'Alice', type: 'peer', position: { x: -200, y: 50 } });
       state = r.state;
       const alice = r.peerId;
-      r = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 700, y: 350 } });
+      r = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 200, y: 50 } });
       state = r.state;
       const bob = r.peerId;
       state = addContact(state, alice, bob);
@@ -41,17 +44,16 @@ export const SCENARIOS: Scenario[] = [
     build() {
       resetIdCounter();
       let state = createInitialState();
-      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
-      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 0, y: ispY() } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 0, y: cloudY() } }).state;
       const ids: string[] = [];
       const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
-      const cx = 500, cy = 400, radius = 180;
+      const radius = 180;
       for (let i = 0; i < 5; i++) {
         const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
         const r = createPeer(state, {
-          label: names[i],
-          type: 'peer',
-          position: { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius },
+          label: names[i], type: 'peer',
+          position: { x: Math.cos(angle) * radius, y: 80 + Math.sin(angle) * radius },
         });
         state = r.state;
         ids.push(r.peerId);
@@ -72,13 +74,13 @@ export const SCENARIOS: Scenario[] = [
     build() {
       resetIdCounter();
       let state = createInitialState();
-      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
-      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
-      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 200, y: 300 } });
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 0, y: ispY() } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 0, y: cloudY() } }).state;
+      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: -250, y: 0 } });
       state = r1.state;
-      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 200, y: 500 } });
+      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: -250, y: 200 } });
       state = r2.state;
-      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 800, y: 400 } });
+      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 250, y: 100 } });
       state = r3.state;
       state = addContact(state, r1.peerId, r2.peerId);
       state = addContact(state, r1.peerId, r3.peerId);
@@ -92,17 +94,17 @@ export const SCENARIOS: Scenario[] = [
     build() {
       resetIdCounter();
       let state = createInitialState();
-      const rt1 = createPeer(state, { label: 'Router A', type: 'router', position: { x: 300, y: 350 } });
+      const rt1 = createPeer(state, { label: 'Router A', type: 'router', position: { x: -200, y: 50 } });
       state = rt1.state;
-      const rt2 = createPeer(state, { label: 'Router B', type: 'router', position: { x: 700, y: 350 } });
+      const rt2 = createPeer(state, { label: 'Router B', type: 'router', position: { x: 200, y: 50 } });
       state = rt2.state;
-      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 200, y: 300 }, transports: ['lan'] });
+      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: -300, y: 0 }, transports: ['lan'] });
       state = r1.state;
-      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 400, y: 250 }, transports: ['lan'] });
+      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: -100, y: -50 }, transports: ['lan'] });
       state = r2.state;
-      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 600, y: 400 }, transports: ['lan'] });
+      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 100, y: 100 }, transports: ['lan'] });
       state = r3.state;
-      const r4 = createPeer(state, { label: 'Dave', type: 'peer', position: { x: 800, y: 300 }, transports: ['lan'] });
+      const r4 = createPeer(state, { label: 'Dave', type: 'peer', position: { x: 300, y: 0 }, transports: ['lan'] });
       state = r4.state;
       state = addContact(state, r1.peerId, r4.peerId);
       state = addContact(state, r2.peerId, r3.peerId);
@@ -116,25 +118,25 @@ export const SCENARIOS: Scenario[] = [
     build() {
       resetIdCounter();
       let state = createInitialState();
-      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
-      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 0, y: ispY() } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 0, y: cloudY() } }).state;
       const r1 = createPeer(state, {
-        label: 'Alice', type: 'peer', position: { x: 150, y: 350 },
+        label: 'Alice', type: 'peer', position: { x: -350, y: 50 },
         transports: ['internet', 'lan'], sps: ['log-height-sync', 'kdf-envelope-sync'],
       });
       state = r1.state;
       const r2 = createPeer(state, {
-        label: 'Bob', type: 'peer', position: { x: 500, y: 200 },
+        label: 'Bob', type: 'peer', position: { x: 0, y: -100 },
         transports: ['internet'], sps: ['kdf-envelope-sync'],
       });
       state = r2.state;
       const r3 = createPeer(state, {
-        label: 'Carol', type: 'peer', position: { x: 500, y: 500 },
+        label: 'Carol', type: 'peer', position: { x: 0, y: 200 },
         transports: ['lan', 'bluetooth'], sps: ['log-height-sync'],
       });
       state = r3.state;
       const r4 = createPeer(state, {
-        label: 'Dave', type: 'peer', position: { x: 850, y: 350 },
+        label: 'Dave', type: 'peer', position: { x: 350, y: 50 },
         transports: ['internet', 'bluetooth'], sps: ['kdf-envelope-sync'],
       });
       state = r4.state;
@@ -147,47 +149,41 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'intranet-shutdown',
     name: 'National Intranet Shutdown',
-    description: 'Two countries with their own ISPs. Toggle shutdown to disconnect the intranet country from the cloud. Starlink bypasses the shutdown.',
+    description: 'Two countries with their own ISPs. Select an ISP and toggle shutdown to disconnect it from the cloud. Starlink bypasses the shutdown.',
     build() {
       resetIdCounter();
       let state = createInitialState();
-      // Dash Server (cloud)
       state = createPeer(state, {
-        label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 },
+        label: 'Dash Server', type: 'dash-server', position: { x: 0, y: cloudY() },
       }).state;
-      // Global country ISP (left)
       state = createPeer(state, {
-        label: 'Global ISP', type: 'isp', position: { x: 250, y: 105 }, zone: 'global',
+        label: 'Global ISP', type: 'isp', position: { x: -250, y: ispY() }, zone: 'global',
       }).state;
-      // Intranet country ISP (right)
       state = createPeer(state, {
-        label: 'Intranet ISP', type: 'isp', position: { x: 750, y: 105 }, zone: 'intranet',
+        label: 'Intranet ISP', type: 'isp', position: { x: 250, y: ispY() }, zone: 'intranet',
       }).state;
-      // Global peers
       const g1 = createPeer(state, {
-        label: 'Alice (Global)', type: 'peer', position: { x: 150, y: 250 },
+        label: 'Alice (Global)', type: 'peer', position: { x: -350, y: -50 },
         transports: ['internet', 'lan'], zone: 'global',
       });
       state = g1.state;
       const g2 = createPeer(state, {
-        label: 'Bob (Global)', type: 'peer', position: { x: 150, y: 550 },
+        label: 'Bob (Global)', type: 'peer', position: { x: -350, y: 250 },
         transports: ['internet', 'lan'], zone: 'global',
       });
       state = g2.state;
-      // Intranet peers
       const i1 = createPeer(state, {
-        label: 'Carol (Intranet)', type: 'peer', position: { x: 650, y: 250 },
+        label: 'Carol (Intranet)', type: 'peer', position: { x: 150, y: -50 },
         transports: ['internet', 'lan'], zone: 'intranet',
       });
       state = i1.state;
       const i2 = createPeer(state, {
-        label: 'Dave (Intranet)', type: 'peer', position: { x: 650, y: 550 },
+        label: 'Dave (Intranet)', type: 'peer', position: { x: 150, y: 250 },
         transports: ['internet', 'lan'], zone: 'intranet',
       });
       state = i2.state;
-      // Starlink in intranet zone — bypasses shutdown
       const sl = createPeer(state, {
-        label: 'Eve (Starlink)', type: 'starlink', position: { x: 500, y: 400 },
+        label: 'Eve (Starlink)', type: 'starlink', position: { x: 0, y: 100 },
         transports: ['internet', 'bluetooth'], zone: 'intranet',
       });
       state = sl.state;
@@ -207,20 +203,20 @@ export const SCENARIOS: Scenario[] = [
     build() {
       resetIdCounter();
       let state = createInitialState();
-      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
-      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 0, y: ispY() } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 0, y: cloudY() } }).state;
       const r1 = createPeer(state, {
-        label: 'Alice', type: 'peer', position: { x: 200, y: 250 },
+        label: 'Alice', type: 'peer', position: { x: -300, y: -50 },
         sps: ['kdf-envelope-sync'],
       });
       state = r1.state;
       const r2 = createPeer(state, {
-        label: 'Bob', type: 'peer', position: { x: 200, y: 550 },
+        label: 'Bob', type: 'peer', position: { x: -300, y: 250 },
         sps: ['kdf-envelope-sync'],
       });
       state = r2.state;
       const r3 = createPeer(state, {
-        label: 'Carol', type: 'peer', position: { x: 800, y: 400 },
+        label: 'Carol', type: 'peer', position: { x: 300, y: 100 },
         sps: ['kdf-envelope-sync'],
       });
       state = r3.state;

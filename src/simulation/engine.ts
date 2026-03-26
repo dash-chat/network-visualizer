@@ -54,7 +54,6 @@ export function createInitialState(): SimulationState {
     tick: 0,
     running: false,
     speed: 1,
-    intranetShutdown: false,
     topicPerGroup: true,
   };
 }
@@ -76,13 +75,6 @@ function canConnect(state: SimulationState, conn: Connection): boolean {
   const from = state.peers.get(conn.from);
   const to = state.peers.get(conn.to);
   if (!from || !to || !from.online || !to.online) return false;
-
-  if (state.intranetShutdown) {
-    if (conn.transport === 'internet') {
-      if (from.zone !== to.zone) return false;
-      if (from.zone === 'local' || to.zone === 'local') return false;
-    }
-  }
 
   return true;
 }
@@ -324,7 +316,6 @@ function runGC(state: SimulationState): void {
 
 /** Height of the internet zone band at the top — must match renderer */
 import {
-  CLOUD_ZONE_HEIGHT, ISP_BAND_TOP, ISP_BAND_BOTTOM,
   SERVER_BOUNDS, ISP_BOUNDS, DEVICE_BOUNDS,
 } from './types';
 
@@ -440,10 +431,9 @@ function findISPForPeer(state: SimulationState, peer: Peer): Peer | undefined {
   return undefined;
 }
 
-/** Check if an ISP can reach a dash-server (blocked during shutdown for intranet ISPs) */
-function canISPReachDashServer(state: SimulationState, isp: Peer): boolean {
-  if (state.intranetShutdown && isp.zone === 'intranet') return false;
-  return true;
+/** Check if an ISP can reach a dash-server (blocked when ISP has shutdown enabled) */
+function canISPReachDashServer(_state: SimulationState, isp: Peer): boolean {
+  return !isp.shutdown;
 }
 
 /**
@@ -883,6 +873,7 @@ export function createPeer(
     transports: opts.transports || (opts.type === 'router' ? ['lan'] : opts.type === 'isp' ? ['internet'] : opts.type === 'dash-server' ? ['internet'] : opts.type === 'starlink' ? ['internet', 'lan'] : opts.type === 'message-server' ? ['lan'] : ['internet']),
     supportedSPs: opts.sps || (isInfrastructure({ type: opts.type } as Peer) ? [] : (opts.type === 'peer' || opts.type === 'starlink') ? ['log-height-sync', 'kdf-envelope-sync'] : ['kdf-envelope-sync']),
     online: true,
+    shutdown: false,
     publicKey: keyPair.publicKey,
     privateKey: keyPair.privateKey,
     appStore: createEmptyAppStore(),
@@ -1168,8 +1159,12 @@ export function updatePeerZone(state: SimulationState, peerId: string, zone: imp
   return { ...state, peers: newPeers };
 }
 
-export function toggleIntranetShutdown(state: SimulationState): SimulationState {
-  return { ...state, intranetShutdown: !state.intranetShutdown };
+export function toggleISPShutdown(state: SimulationState, ispId: string): SimulationState {
+  const isp = state.peers.get(ispId);
+  if (!isp || isp.type !== 'isp') return state;
+  const newPeers = new Map(state.peers);
+  newPeers.set(ispId, { ...isp, shutdown: !isp.shutdown });
+  return { ...state, peers: newPeers };
 }
 
 export function applySetupConfig(state: SimulationState, config: SetupConfig): SimulationState {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { simulationState, selectedPeerId, selectedPeer } from '../stores/ui-state';
-  import { sendMessage, addContact, createGroup, addMember, toggleOnline } from '../simulation/engine';
+  import { sendMessage, addContact, createGroup, addMember, toggleOnline, toggleISPShutdown } from '../simulation/engine';
 
   let dmContent = $state('Hello!');
   let dmRecipient = $state('');
@@ -231,5 +231,18 @@
       {/if}
 
     </div>
+  </div>
+{:else if $selectedPeer && $selectedPeer.type === 'isp'}
+  <div class="border-t border-[var(--border)] p-3">
+    <h4 class="text-xs font-bold uppercase text-[var(--text-muted)] mb-2">ISP Actions</h4>
+    <button
+      class="w-full px-3 py-1.5 rounded text-xs font-medium transition-colors {$selectedPeer.shutdown ? 'bg-[var(--success)]/20 text-[var(--success)]' : 'bg-[var(--error)]/20 text-[var(--error)]'}"
+      onclick={() => $selectedPeerId && simulationState.update(s => toggleISPShutdown(s, $selectedPeerId!))}
+    >
+      {$selectedPeer.shutdown ? 'Restore Internet Connection' : 'Shut Down Internet (disconnect from Dash Server)'}
+    </button>
+    {#if $selectedPeer.shutdown}
+      <p class="text-[9px] text-[var(--error)] mt-1">This ISP is disconnected from the cloud. Local devices can still reach each other through this ISP.</p>
+    {/if}
   </div>
 {/if}

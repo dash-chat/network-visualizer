@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Text, TextStyle, FederatedPointerEven
 import type { SimulationState, Transport } from '../simulation/types';
 import {
   TRANSPORT_STYLES, TRANSPORT_RANGE, getPeerSyncStats,
-  CLOUD_ZONE_HEIGHT, ISP_BAND_TOP, ISP_BAND_BOTTOM,
+  setScreenHalfHeight, getCloudTop, getCloudBottom, getISPTop, getISPBottom, getDeviceTop,
 } from '../simulation/types';
 import { topicColorHex } from '../simulation/crypto';
 
@@ -24,6 +24,7 @@ const TRANSPORT_COLORS: Record<Transport, number> = {
 
 export class NetworkRenderer {
   private app!: Application;
+  private worldContainer!: Container; // translated so (0,0) = screen center
   private nodesContainer!: Container;
   private connectionsContainer!: Container;
   private transitContainer!: Container;
@@ -46,15 +47,20 @@ export class NetworkRenderer {
       resolution: window.devicePixelRatio || 1,
     });
 
+    this.worldContainer = new Container();
     this.zonesContainer = new Container();
     this.connectionsContainer = new Container();
     this.transitContainer = new Container();
     this.nodesContainer = new Container();
 
-    this.app.stage.addChild(this.zonesContainer);
-    this.app.stage.addChild(this.connectionsContainer);
-    this.app.stage.addChild(this.transitContainer);
-    this.app.stage.addChild(this.nodesContainer);
+    this.worldContainer.addChild(this.zonesContainer);
+    this.worldContainer.addChild(this.connectionsContainer);
+    this.worldContainer.addChild(this.transitContainer);
+    this.worldContainer.addChild(this.nodesContainer);
+    this.app.stage.addChild(this.worldContainer);
+
+    // Center world so (0,0) = screen center
+    this.updateWorldOffset();
 
     // Global pointer events for dragging
     this.app.stage.eventMode = 'static';
@@ -70,7 +76,17 @@ export class NetworkRenderer {
 
   resize() {
     this.app?.resize();
+    this.updateWorldOffset();
   }
+
+  /** Translate the world container so (0,0) in world = center of screen */
+  private updateWorldOffset() {
+    if (!this.app || !this.worldContainer) return;
+    this.worldContainer.x = this.app.screen.width / 2;
+    this.worldContainer.y = this.app.screen.height / 2;
+    setScreenHalfHeight(this.app.screen.height / 2);
+  }
+
 
   render(state: SimulationState) {
     this.renderZones(state);
@@ -82,11 +98,14 @@ export class NetworkRenderer {
   private renderZones(state: SimulationState) {
     this.zonesContainer.removeChildren();
 
-    const screenW = this.app.screen.width;
+    const halfW = this.app.screen.width / 2;
+    const cloudTop = getCloudTop();
+    const ispTop = getISPTop();
+    const ispBottom = getISPBottom();
 
-    // Cloud zone (dash-servers)
+    // Cloud zone (dash-servers) — fixed height strip above ISP band
     const cloudBg = new Graphics();
-    cloudBg.rect(0, 0, screenW, CLOUD_ZONE_HEIGHT);
+    cloudBg.rect(-halfW, cloudTop, halfW * 2, ispTop - cloudTop);
     cloudBg.fill({ color: 0x1a2744, alpha: 0.6 });
     this.zonesContainer.addChild(cloudBg);
 
@@ -94,26 +113,25 @@ export class NetworkRenderer {
       text: '☁ Cloud',
       style: new TextStyle({ fontSize: 11, fill: 0x64748b, fontFamily: 'system-ui' }),
     });
-    cloudLabel.x = 10;
-    cloudLabel.y = 6;
+    cloudLabel.x = -halfW + 10;
+    cloudLabel.y = cloudTop + 6;
     this.zonesContainer.addChild(cloudLabel);
 
     // ISP band
     const ispBg = new Graphics();
-    ispBg.rect(0, ISP_BAND_TOP, screenW, ISP_BAND_BOTTOM - ISP_BAND_TOP);
+    ispBg.rect(-halfW, ispTop, halfW * 2, ispBottom - ispTop);
     ispBg.fill({ color: 0x162033, alpha: 0.5 });
     this.zonesContainer.addChild(ispBg);
 
-    // ISP band border lines
     const ispBorderTop = new Graphics();
-    ispBorderTop.moveTo(0, ISP_BAND_TOP);
-    ispBorderTop.lineTo(screenW, ISP_BAND_TOP);
+    ispBorderTop.moveTo(-halfW, ispTop);
+    ispBorderTop.lineTo(halfW, ispTop);
     ispBorderTop.stroke({ color: 0x334155, width: 1, alpha: 0.3 });
     this.zonesContainer.addChild(ispBorderTop);
 
     const ispBorderBottom = new Graphics();
-    ispBorderBottom.moveTo(0, ISP_BAND_BOTTOM);
-    ispBorderBottom.lineTo(screenW, ISP_BAND_BOTTOM);
+    ispBorderBottom.moveTo(-halfW, ispBottom);
+    ispBorderBottom.lineTo(halfW, ispBottom);
     ispBorderBottom.stroke({ color: 0x334155, width: 1, alpha: 0.3 });
     this.zonesContainer.addChild(ispBorderBottom);
 
@@ -121,8 +139,8 @@ export class NetworkRenderer {
       text: 'ISPs',
       style: new TextStyle({ fontSize: 10, fill: 0x475569, fontFamily: 'system-ui' }),
     });
-    ispLabel.x = 10;
-    ispLabel.y = ISP_BAND_TOP + 4;
+    ispLabel.x = -halfW + 10;
+    ispLabel.y = ispTop + 4;
     this.zonesContainer.addChild(ispLabel);
 
     // Country divisions in the ISP band (based on ISP zones)
@@ -146,14 +164,16 @@ export class NetworkRenderer {
       const currMin = zoneEntries[i][1].minX;
       const dividerX = (prevMax + currMin) / 2;
       const divider = new Graphics();
-      divider.moveTo(dividerX, ISP_BAND_TOP);
-      divider.lineTo(dividerX, ISP_BAND_BOTTOM);
+      divider.moveTo(dividerX, ispTop);
+      divider.lineTo(dividerX, ispBottom);
       divider.stroke({ color: 0x475569, width: 1, alpha: 0.4 });
       this.zonesContainer.addChild(divider);
     }
 
-    // Intranet shutdown zone overlays (device area only)
-    if (!state.intranetShutdown) return;
+    // Shutdown zone overlays: show when any ISP has shutdown enabled
+    const shutdownISPs = [...state.peers.values()].filter(p => p.type === 'isp' && p.shutdown);
+    if (shutdownISPs.length === 0) return;
+    const shutdownZones = new Set<string>(shutdownISPs.map(p => p.zone));
 
     const zones: Record<string, { minX: number; minY: number; maxX: number; maxY: number }> = {};
     for (const peer of state.peers.values()) {
@@ -170,6 +190,7 @@ export class NetworkRenderer {
     }
 
     for (const [zone, bounds] of Object.entries(zones)) {
+      if (!shutdownZones.has(zone)) continue; // only overlay zones with shutdown ISPs
       const padding = 80;
       const g = new Graphics();
       g.roundRect(
@@ -180,11 +201,11 @@ export class NetworkRenderer {
         16
       );
       g.fill({ color: ZONE_BG[zone] || 0x1e293b, alpha: 0.5 });
-      g.stroke({ color: zone === 'intranet' ? 0xef4444 : 0x475569, width: 2, alpha: 0.5 });
+      g.stroke({ color: 0xef4444, width: 2, alpha: 0.5 });
 
       const label = new Text({
-        text: zone === 'global' ? 'Global' : zone === 'intranet' ? 'National Intranet' : 'Local/Off-grid',
-        style: new TextStyle({ fontSize: 14, fill: 0x94a3b8, fontFamily: 'system-ui' }),
+        text: 'Internet Shutdown',
+        style: new TextStyle({ fontSize: 14, fill: 0xef4444, fontFamily: 'system-ui' }),
       });
       label.x = bounds.minX - padding + 12;
       label.y = bounds.minY - padding + 8;
@@ -202,12 +223,8 @@ export class NetworkRenderer {
       const to = state.peers.get(conn.to);
       if (!from || !to) continue;
 
-      // Check if connection is blocked by intranet shutdown
-      let blocked = false;
-      if (state.intranetShutdown && conn.transport === 'internet') {
-        if (from.zone !== to.zone) blocked = true;
-        if (from.zone === 'local' || to.zone === 'local') blocked = true;
-      }
+      // Connection is never "blocked" — ISP shutdown removes connections via engine logic
+      const blocked = false;
 
       const g = new Graphics();
       const isInternet = conn.transport === 'internet';
@@ -413,8 +430,8 @@ export class NetworkRenderer {
         if (!isFixed) {
           this.dragTarget = {
             peerId,
-            offsetX: e.global.x - peer.position.x,
-            offsetY: e.global.y - peer.position.y,
+            offsetX: (e.global.x - this.worldContainer.x) - peer.position.x,
+            offsetY: (e.global.y - this.worldContainer.y) - peer.position.y,
           };
         }
         e.stopPropagation();
@@ -459,9 +476,10 @@ export class NetworkRenderer {
 
   private onDragMove(e: FederatedPointerEvent) {
     if (!this.dragTarget) return;
-    const newX = e.global.x - this.dragTarget.offsetX;
-    const newY = Math.max(e.global.y - this.dragTarget.offsetY, ISP_BAND_BOTTOM + 20);
-    this.onPeerMove?.(this.dragTarget.peerId, newX, newY);
+    // Convert screen coords to world coords
+    const worldX = e.global.x - this.worldContainer.x - this.dragTarget.offsetX;
+    const worldY = e.global.y - this.worldContainer.y - this.dragTarget.offsetY;
+    this.onPeerMove?.(this.dragTarget.peerId, worldX, Math.max(worldY, getDeviceTop()));
   }
 
   private onDragEnd() {

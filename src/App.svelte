@@ -3,9 +3,7 @@
   import { NetworkRenderer } from './renderer/network-renderer';
   import { simulationState, selectedPeerId, showInspector, showSetup } from './stores/ui-state';
   import Toolbar from './components/Toolbar.svelte';
-  import ProtocolPanel from './components/ProtocolPanel.svelte';
   import InspectorPanel from './components/InspectorPanel.svelte';
-  import Legend from './components/Legend.svelte';
   import SetupScreen from './components/SetupScreen.svelte';
 
   let canvasEl: HTMLCanvasElement;
@@ -40,14 +38,6 @@
       handleResize = () => renderer?.resize();
       window.addEventListener('resize', handleResize);
 
-      // Resize canvas when inspector panel shows/hides
-      const unsubPeer = selectedPeerId.subscribe(() => {
-        requestAnimationFrame(() => renderer?.resize());
-      });
-
-      return () => {
-        unsubPeer();
-      };
     });
 
     return () => {
@@ -67,17 +57,13 @@
   <Toolbar />
 
   <!-- Main content -->
-  <div class="flex flex-1 overflow-hidden">
-    <!-- Left panel: Protocol & Config -->
-    <ProtocolPanel />
+  <div class="flex-1 relative overflow-hidden">
+    <!-- Canvas (full area) -->
+    <canvas bind:this={canvasEl} class="w-full h-full"></canvas>
 
-    <!-- Center: Canvas -->
-    <div class="flex-1 min-w-0 relative">
-      <canvas bind:this={canvasEl} class="w-full h-full"></canvas>
-      <Legend />
+    <!-- Right panel: overlaid on top -->
+    <div class="absolute top-0 right-0 h-full z-10">
+      <InspectorPanel />
     </div>
-
-    <!-- Right panel: Inspector + Actions -->
-    <InspectorPanel />
   </div>
 </div>
