@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { NetworkRenderer } from './renderer/network-renderer';
-  import { simulationState, selectedPeerId, showInspector } from './stores/ui-state';
+  import { simulationState, selectedPeerId, showInspector, showSetup } from './stores/ui-state';
   import Toolbar from './components/Toolbar.svelte';
   import ProtocolPanel from './components/ProtocolPanel.svelte';
   import InspectorPanel from './components/InspectorPanel.svelte';
   import Legend from './components/Legend.svelte';
+  import SetupScreen from './components/SetupScreen.svelte';
 
   let canvasEl: HTMLCanvasElement;
   let renderer: NetworkRenderer;
@@ -57,7 +58,11 @@
   });
 </script>
 
-<div class="flex flex-col h-screen w-screen overflow-hidden">
+{#if $showSetup}
+  <SetupScreen />
+{/if}
+
+<div class="flex flex-col h-screen w-screen overflow-hidden" class:invisible={$showSetup}>
   <!-- Top toolbar -->
   <Toolbar />
 

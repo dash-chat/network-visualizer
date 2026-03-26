@@ -1,23 +1,32 @@
 <script lang="ts">
   import { simulationState, selectedPeerId, selectedPeer } from '../stores/ui-state';
-  import { sendMessage, addContact, createGroup, toggleOnline } from '../simulation/engine';
+  import { sendMessage, addContact, createGroup, addMember, toggleOnline } from '../simulation/engine';
 
-  let messageContent = $state('Hello!');
-  let messageRecipient = $state('');
-  let groupName = $state('New Group');
-  let selectedMembers = $state<string[]>([]);
+  let dmContent = $state('Hello!');
+  let dmRecipient = $state('');
+  let groupMsgContent = $state('Hello group!');
+  let groupMsgTarget = $state('');
   let contactTarget = $state('');
-  let messageGroupId = $state('');
+  let newGroupName = $state('New Group');
+  let addMemberGroup = $state('');
+  let addMemberTarget = $state('');
 
-  function handleSendMessage() {
+  function handleSendDM() {
     const peerId = $selectedPeerId;
-    if (!peerId || !messageRecipient) return;
-    const recipients = messageGroupId
-      ? ($selectedPeer?.groups.find(g => g.id === messageGroupId)?.members.filter(m => m !== peerId) ?? [])
-      : [messageRecipient];
-    simulationState.update(s =>
-      sendMessage(s, peerId, recipients, messageContent, messageGroupId || undefined)
-    );
+    if (!peerId || !dmRecipient) return;
+    simulationState.update(s => sendMessage(s, peerId, [dmRecipient], dmContent));
+    dmContent = 'Hello!';
+  }
+
+  function handleSendGroupMessage() {
+    const peerId = $selectedPeerId;
+    const peer = $selectedPeer;
+    if (!peerId || !peer || !groupMsgTarget) return;
+    const group = peer.groups.find(g => g.id === groupMsgTarget);
+    if (!group) return;
+    const recipients = group.members.filter(m => m !== peerId);
+    simulationState.update(s => sendMessage(s, peerId, recipients, groupMsgContent, groupMsgTarget));
+    groupMsgContent = 'Hello group!';
   }
 
   function handleAddContact() {
@@ -29,9 +38,16 @@
 
   function handleCreateGroup() {
     const peerId = $selectedPeerId;
-    if (!peerId || !groupName.trim() || selectedMembers.length === 0) return;
-    simulationState.update(s => createGroup(s, peerId, groupName, selectedMembers));
-    selectedMembers = [];
+    if (!peerId || !newGroupName.trim()) return;
+    simulationState.update(s => createGroup(s, peerId, newGroupName, []));
+    newGroupName = 'New Group';
+  }
+
+  function handleAddMember() {
+    const peerId = $selectedPeerId;
+    if (!peerId || !addMemberGroup || !addMemberTarget) return;
+    simulationState.update(s => addMember(s, peerId, addMemberGroup, addMemberTarget));
+    addMemberTarget = '';
   }
 
   function handleToggleOnline() {
@@ -40,85 +56,50 @@
     simulationState.update(s => toggleOnline(s, peerId));
   }
 
-  function toggleMember(id: string) {
-    if (selectedMembers.includes(id)) {
-      selectedMembers = selectedMembers.filter(m => m !== id);
-    } else {
-      selectedMembers = [...selectedMembers, id];
-    }
-  }
-
-  // Get other peers for selection
+  // Other device-type peers (not infrastructure)
   let otherPeers = $derived(
     [...$simulationState.peers.values()].filter(p => p.id !== $selectedPeerId && p.type === 'peer')
   );
+
+  // Contacts not yet added
+  let nonContacts = $derived(
+    otherPeers.filter(p => !$selectedPeer?.contacts.includes(p.id))
+  );
+
+  // Peers not in a given group
+  function nonMembers(groupId: string) {
+    const group = $selectedPeer?.groups.find(g => g.id === groupId);
+    if (!group) return [];
+    return otherPeers.filter(p => !group.members.includes(p.id));
+  }
 </script>
 
-{#if $selectedPeer}
+{#if $selectedPeer && $selectedPeer.type === 'peer'}
+  {@const peer = $selectedPeer}
   <div class="border-t border-[var(--border)] p-3">
-    <div class="flex items-center gap-2 mb-2">
+    <div class="flex items-center gap-2 mb-3">
       <h4 class="text-xs font-bold uppercase text-[var(--text-muted)]">Actions</h4>
       <button
-        class="ml-auto text-[9px] px-1.5 py-0.5 rounded transition-colors {$selectedPeer.online ? 'bg-[var(--error)]/20 text-[var(--error)]' : 'bg-[var(--success)]/20 text-[var(--success)]'}"
+        class="ml-auto text-[9px] px-1.5 py-0.5 rounded transition-colors {peer.online ? 'bg-[var(--error)]/20 text-[var(--error)]' : 'bg-[var(--success)]/20 text-[var(--success)]'}"
         onclick={handleToggleOnline}
       >
-        {$selectedPeer.online ? 'Turn Off' : 'Turn On'}
+        {peer.online ? 'Turn Off' : 'Turn On'}
       </button>
     </div>
 
-    <div class="flex flex-col gap-2 text-xs {$selectedPeer.online ? '' : 'opacity-40 pointer-events-none'}">
-      <!-- Send Message -->
-      <div>
-        <span class="text-[var(--text-muted)] font-semibold text-[10px]">Send Message</span>
-        <div class="flex flex-col gap-1 mt-1">
-          <select
-            bind:value={messageRecipient}
-            class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
-          >
-            <option value="">Select recipient</option>
-            {#each otherPeers as peer}
-              <option value={peer.id}>{peer.label}</option>
-            {/each}
-          </select>
-          {#if $selectedPeer.groups.length > 0}
-            <select
-              bind:value={messageGroupId}
-              class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
-            >
-              <option value="">DM</option>
-              {#each $selectedPeer.groups as group}
-                <option value={group.id}>{group.name}</option>
-              {/each}
-            </select>
-          {/if}
-          <div class="flex gap-1">
-            <input
-              type="text"
-              bind:value={messageContent}
-              class="flex-1 bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
-              placeholder="Message..."
-              onkeydown={(e) => e.key === 'Enter' && handleSendMessage()}
-            />
-            <button
-              class="px-2 py-1 rounded bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
-              onclick={handleSendMessage}
-              disabled={!messageRecipient && !messageGroupId}
-            >Send</button>
-          </div>
-        </div>
-      </div>
+    <div class="flex flex-col gap-3 text-xs {peer.online ? '' : 'opacity-40 pointer-events-none'}">
 
       <!-- Add Contact -->
       <div>
-        <span class="text-[var(--text-muted)] font-semibold text-[10px]">Add Contact</span>
+        <span class="text-[10px] font-semibold text-[var(--text-muted)]">Add Contact</span>
         <div class="flex gap-1 mt-1">
           <select
             bind:value={contactTarget}
             class="flex-1 bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
           >
-            <option value="">Select peer</option>
-            {#each otherPeers.filter(p => !$selectedPeer?.contacts.includes(p.id)) as peer}
-              <option value={peer.id}>{peer.label}</option>
+            <option value="">Select peer...</option>
+            {#each nonContacts as p}
+              <option value={p.id}>{p.label}</option>
             {/each}
           </select>
           <button
@@ -129,31 +110,126 @@
         </div>
       </div>
 
+      <!-- Send Direct Message -->
+      {#if peer.contacts.length > 0}
+        <div>
+          <span class="text-[10px] font-semibold text-[var(--text-muted)]">Send Direct Message</span>
+          <div class="flex flex-col gap-1 mt-1">
+            <select
+              bind:value={dmRecipient}
+              class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+            >
+              <option value="">Select contact...</option>
+              {#each peer.contacts as cid}
+                {@const c = $simulationState.peers.get(cid)}
+                {#if c}
+                  <option value={cid}>{c.label}</option>
+                {/if}
+              {/each}
+            </select>
+            <div class="flex gap-1">
+              <input
+                type="text"
+                bind:value={dmContent}
+                class="flex-1 bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+                placeholder="Message..."
+                onkeydown={(e) => e.key === 'Enter' && handleSendDM()}
+              />
+              <button
+                class="px-2 py-1 rounded bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                onclick={handleSendDM}
+                disabled={!dmRecipient}
+              >Send</button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
       <!-- Create Group -->
       <div>
-        <span class="text-[var(--text-muted)] font-semibold text-[10px]">Create Group</span>
-        <div class="flex flex-col gap-1 mt-1">
+        <span class="text-[10px] font-semibold text-[var(--text-muted)]">Create Group</span>
+        <div class="flex gap-1 mt-1">
           <input
             type="text"
-            bind:value={groupName}
-            class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+            bind:value={newGroupName}
+            class="flex-1 bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
             placeholder="Group name"
+            onkeydown={(e) => e.key === 'Enter' && handleCreateGroup()}
           />
-          <div class="flex gap-1 flex-wrap">
-            {#each otherPeers.filter(p => $selectedPeer?.contacts.includes(p.id)) as peer}
-              <button
-                class="text-[9px] px-1 rounded {selectedMembers.includes(peer.id) ? 'bg-[var(--accent)]/30 text-[var(--accent)]' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'}"
-                onclick={() => toggleMember(peer.id)}
-              >{peer.label}</button>
-            {/each}
-          </div>
           <button
-            class="w-full px-2 py-1 rounded bg-[var(--warning)] text-black text-xs font-medium disabled:opacity-50"
+            class="px-2 py-1 rounded bg-[var(--warning)] text-black font-medium disabled:opacity-50"
             onclick={handleCreateGroup}
-            disabled={selectedMembers.length === 0}
+            disabled={!newGroupName.trim()}
           >Create</button>
         </div>
       </div>
+
+      <!-- Add Member to Group -->
+      {#if peer.groups.length > 0}
+        <div>
+          <span class="text-[10px] font-semibold text-[var(--text-muted)]">Add Member to Group</span>
+          <div class="flex flex-col gap-1 mt-1">
+            <select
+              bind:value={addMemberGroup}
+              class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+            >
+              <option value="">Select group...</option>
+              {#each peer.groups as g}
+                <option value={g.id}>{g.name}</option>
+              {/each}
+            </select>
+            {#if addMemberGroup}
+              <div class="flex gap-1">
+                <select
+                  bind:value={addMemberTarget}
+                  class="flex-1 bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+                >
+                  <option value="">Select peer...</option>
+                  {#each nonMembers(addMemberGroup) as p}
+                    <option value={p.id}>{p.label}</option>
+                  {/each}
+                </select>
+                <button
+                  class="px-2 py-1 rounded bg-[var(--warning)] text-black font-medium disabled:opacity-50"
+                  onclick={handleAddMember}
+                  disabled={!addMemberTarget}
+                >Add</button>
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Send Group Message -->
+        <div>
+          <span class="text-[10px] font-semibold text-[var(--text-muted)]">Send Group Message</span>
+          <div class="flex flex-col gap-1 mt-1">
+            <select
+              bind:value={groupMsgTarget}
+              class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+            >
+              <option value="">Select group...</option>
+              {#each peer.groups as g}
+                <option value={g.id}>{g.name} ({g.members.length} members)</option>
+              {/each}
+            </select>
+            <div class="flex gap-1">
+              <input
+                type="text"
+                bind:value={groupMsgContent}
+                class="flex-1 bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded px-1.5 py-1 border border-[var(--border)] outline-none text-xs"
+                placeholder="Message..."
+                onkeydown={(e) => e.key === 'Enter' && handleSendGroupMessage()}
+              />
+              <button
+                class="px-2 py-1 rounded bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                onclick={handleSendGroupMessage}
+                disabled={!groupMsgTarget}
+              >Send</button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
     </div>
   </div>
 {/if}

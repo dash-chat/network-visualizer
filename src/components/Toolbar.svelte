@@ -5,19 +5,15 @@
     stopSimulation,
     stepSimulation,
     setSpeed,
-    loadScenario,
     resetSimulation,
-    setLogModel,
-    toggleSplitByGroup,
+    openSetup,
   } from '../stores/ui-state';
   import { createPeer, toggleIntranetShutdown } from '../simulation/engine';
-  import { SCENARIOS } from '../simulation/scenarios';
-  import { LOG_MODEL_DEFINITIONS, type LogModelType } from '../simulation/types';
 
   let speed = $state(1);
   let showAddPeer = $state(false);
   let newPeerLabel = $state('');
-  let newPeerType = $state<'peer' | 'message-server'>('peer');
+  let newPeerType = $state<'peer' | 'message-server' | 'dash-server' | 'router' | 'starlink' | 'isp'>('peer');
 
   function handleSpeedChange(e: Event) {
     speed = parseFloat((e.target as HTMLInputElement).value);
@@ -42,50 +38,16 @@
   function handleToggleIntranet() {
     simulationState.update(s => toggleIntranetShutdown(s));
   }
-
-  function handleLogModelChange(e: Event) {
-    const value = (e.target as HTMLSelectElement).value as LogModelType;
-    setLogModel(value);
-  }
 </script>
 
 <div class="flex items-center gap-3 px-4 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border)]">
-  <!-- Scenario selector -->
-  <select
-    class="bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm rounded px-2 py-1.5 border border-[var(--border)] outline-none"
-    onchange={(e) => loadScenario((e.target as HTMLSelectElement).value)}
+  <!-- Setup button -->
+  <button
+    class="px-3 py-1 rounded text-sm bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)] transition-colors"
+    onclick={openSetup}
   >
-    {#each SCENARIOS as scenario}
-      <option value={scenario.id}>{scenario.name}</option>
-    {/each}
-  </select>
-
-  <div class="w-px h-6 bg-[var(--border)]"></div>
-
-  <!-- Log Model selector -->
-  <div class="flex items-center gap-2">
-    <select
-      class="bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm rounded px-2 py-1.5 border border-[var(--border)] outline-none"
-      value={$simulationState.logModel}
-      onchange={handleLogModelChange}
-    >
-      {#each Object.values(LOG_MODEL_DEFINITIONS) as lm}
-        <option value={lm.type}>{lm.name}</option>
-      {/each}
-    </select>
-
-    {#if $simulationState.logModel === 'shared-peer-logs'}
-      <label class="flex items-center gap-1 text-xs text-[var(--text-secondary)] cursor-pointer">
-        <input
-          type="checkbox"
-          checked={$simulationState.splitByGroup}
-          onchange={() => toggleSplitByGroup()}
-          class="accent-[var(--accent)]"
-        />
-        Split by group
-      </label>
-    {/if}
-  </div>
+    Setup
+  </button>
 
   <div class="w-px h-6 bg-[var(--border)]"></div>
 
@@ -132,6 +94,11 @@
   <!-- Tick counter -->
   <span class="text-sm text-[var(--text-muted)]">Tick: {$simulationState.tick}</span>
 
+  <!-- Topic per group indicator -->
+  {#if !$simulationState.topicPerGroup}
+    <span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--warning)]/20 text-[var(--warning)]">Shared logs</span>
+  {/if}
+
   <div class="flex-1"></div>
 
   <!-- Intranet shutdown toggle -->
@@ -157,7 +124,11 @@
         class="bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm rounded px-2 py-1 border border-[var(--border)] outline-none"
       >
         <option value="peer">Peer</option>
-        <option value="message-server">Server</option>
+        <option value="starlink">Starlink</option>
+        <option value="router">Router</option>
+        <option value="isp">ISP</option>
+        <option value="message-server">Relay Server</option>
+        <option value="dash-server">Dash Server</option>
       </select>
       <button
         class="px-2 py-1 rounded text-sm bg-[var(--success)] text-white"

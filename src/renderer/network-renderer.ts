@@ -1,13 +1,11 @@
 import { Application, Container, Graphics, Text, TextStyle, FederatedPointerEvent } from 'pixi.js';
-import type { SimulationState, SPType, Transport } from '../simulation/types';
-import { TRANSPORT_STYLES } from '../simulation/types';
-import { getCommonSPs } from '../simulation/engine';
+import type { SimulationState, Transport } from '../simulation/types';
+import {
+  TRANSPORT_STYLES, TRANSPORT_RANGE, getPeerSyncStats,
+  CLOUD_ZONE_HEIGHT, ISP_BAND_TOP, ISP_BAND_BOTTOM,
+} from '../simulation/types';
+import { topicColorHex } from '../simulation/crypto';
 
-const SP_COLORS: Record<SPType, number> = {
-  'topic-sync': 0x06b6d4,     // cyan
-  'encrypted-group': 0xec4899, // pink
-  'encrypted-only': 0x84cc16,  // lime
-};
 
 const ZONE_BG: Record<string, number> = {
   'global': 0x1e293b,
@@ -21,6 +19,8 @@ const TRANSPORT_COLORS: Record<Transport, number> = {
   'bluetooth': 0x8b5cf6,
   'lora': 0xf97316,
 };
+
+// Use shared layout constants from types
 
 export class NetworkRenderer {
   private app!: Application;
@@ -82,11 +82,83 @@ export class NetworkRenderer {
   private renderZones(state: SimulationState) {
     this.zonesContainer.removeChildren();
 
+    const screenW = this.app.screen.width;
+
+    // Cloud zone (dash-servers)
+    const cloudBg = new Graphics();
+    cloudBg.rect(0, 0, screenW, CLOUD_ZONE_HEIGHT);
+    cloudBg.fill({ color: 0x1a2744, alpha: 0.6 });
+    this.zonesContainer.addChild(cloudBg);
+
+    const cloudLabel = new Text({
+      text: '☁ Cloud',
+      style: new TextStyle({ fontSize: 11, fill: 0x64748b, fontFamily: 'system-ui' }),
+    });
+    cloudLabel.x = 10;
+    cloudLabel.y = 6;
+    this.zonesContainer.addChild(cloudLabel);
+
+    // ISP band
+    const ispBg = new Graphics();
+    ispBg.rect(0, ISP_BAND_TOP, screenW, ISP_BAND_BOTTOM - ISP_BAND_TOP);
+    ispBg.fill({ color: 0x162033, alpha: 0.5 });
+    this.zonesContainer.addChild(ispBg);
+
+    // ISP band border lines
+    const ispBorderTop = new Graphics();
+    ispBorderTop.moveTo(0, ISP_BAND_TOP);
+    ispBorderTop.lineTo(screenW, ISP_BAND_TOP);
+    ispBorderTop.stroke({ color: 0x334155, width: 1, alpha: 0.3 });
+    this.zonesContainer.addChild(ispBorderTop);
+
+    const ispBorderBottom = new Graphics();
+    ispBorderBottom.moveTo(0, ISP_BAND_BOTTOM);
+    ispBorderBottom.lineTo(screenW, ISP_BAND_BOTTOM);
+    ispBorderBottom.stroke({ color: 0x334155, width: 1, alpha: 0.3 });
+    this.zonesContainer.addChild(ispBorderBottom);
+
+    const ispLabel = new Text({
+      text: 'ISPs',
+      style: new TextStyle({ fontSize: 10, fill: 0x475569, fontFamily: 'system-ui' }),
+    });
+    ispLabel.x = 10;
+    ispLabel.y = ISP_BAND_TOP + 4;
+    this.zonesContainer.addChild(ispLabel);
+
+    // Country divisions in the ISP band (based on ISP zones)
+    const ispsByZone = new Map<string, { minX: number; maxX: number }>();
+    for (const peer of state.peers.values()) {
+      if (peer.type !== 'isp') continue;
+      const zone = peer.zone;
+      if (!ispsByZone.has(zone)) {
+        ispsByZone.set(zone, { minX: peer.position.x, maxX: peer.position.x });
+      } else {
+        const b = ispsByZone.get(zone)!;
+        b.minX = Math.min(b.minX, peer.position.x);
+        b.maxX = Math.max(b.maxX, peer.position.x);
+      }
+    }
+
+    // Draw vertical dividers between ISP zones
+    const zoneEntries = [...ispsByZone.entries()].sort((a, b) => a[1].minX - b[1].minX);
+    for (let i = 1; i < zoneEntries.length; i++) {
+      const prevMax = zoneEntries[i - 1][1].maxX;
+      const currMin = zoneEntries[i][1].minX;
+      const dividerX = (prevMax + currMin) / 2;
+      const divider = new Graphics();
+      divider.moveTo(dividerX, ISP_BAND_TOP);
+      divider.lineTo(dividerX, ISP_BAND_BOTTOM);
+      divider.stroke({ color: 0x475569, width: 1, alpha: 0.4 });
+      this.zonesContainer.addChild(divider);
+    }
+
+    // Intranet shutdown zone overlays (device area only)
     if (!state.intranetShutdown) return;
 
-    // Group peers by zone and draw background regions
     const zones: Record<string, { minX: number; minY: number; maxX: number; maxY: number }> = {};
     for (const peer of state.peers.values()) {
+      if (peer.type === 'dash-server' || peer.type === 'isp') continue;
+      if (peer.type === 'message-server') continue;
       if (!zones[peer.zone]) {
         zones[peer.zone] = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
       }
@@ -111,12 +183,8 @@ export class NetworkRenderer {
       g.stroke({ color: zone === 'intranet' ? 0xef4444 : 0x475569, width: 2, alpha: 0.5 });
 
       const label = new Text({
-        text: zone === 'global' ? 'Global Internet' : zone === 'intranet' ? 'National Intranet' : 'Local/Off-grid',
-        style: new TextStyle({
-          fontSize: 14,
-          fill: 0x94a3b8,
-          fontFamily: 'system-ui',
-        }),
+        text: zone === 'global' ? 'Global' : zone === 'intranet' ? 'National Intranet' : 'Local/Off-grid',
+        style: new TextStyle({ fontSize: 14, fill: 0x94a3b8, fontFamily: 'system-ui' }),
       });
       label.x = bounds.minX - padding + 12;
       label.y = bounds.minY - padding + 8;
@@ -134,9 +202,6 @@ export class NetworkRenderer {
       const to = state.peers.get(conn.to);
       if (!from || !to) continue;
 
-      const commonSPs = getCommonSPs(from, to);
-      const noCommonSP = commonSPs.length === 0;
-
       // Check if connection is blocked by intranet shutdown
       let blocked = false;
       if (state.intranetShutdown && conn.transport === 'internet') {
@@ -145,13 +210,13 @@ export class NetworkRenderer {
       }
 
       const g = new Graphics();
-      const color = blocked ? 0xef4444 : noCommonSP ? 0xef4444 : TRANSPORT_COLORS[conn.transport];
-      const alpha = blocked ? 0.3 : (from.online && to.online) ? 0.8 : 0.2;
+      const isInternet = conn.transport === 'internet';
+      const color = blocked ? 0xef4444 : TRANSPORT_COLORS[conn.transport];
+      const alpha = blocked ? 0.2 : isInternet ? 0.15 : (from.online && to.online) ? 0.8 : 0.2;
 
-      // Draw line
       g.moveTo(from.position.x, from.position.y);
       g.lineTo(to.position.x, to.position.y);
-      g.stroke({ color, width: blocked || noCommonSP ? 1 : 2, alpha });
+      g.stroke({ color, width: blocked ? 1 : isInternet ? 1 : 2, alpha });
 
       this.connectionsContainer.addChild(g);
 
@@ -173,12 +238,12 @@ export class NetworkRenderer {
         this.connectionsContainer.addChild(label);
       }
 
-      // "No common SP" or "Blocked" label
-      if (noCommonSP || blocked) {
+      // "Blocked" label for shutdown
+      if (blocked) {
         const midX = (from.position.x + to.position.x) / 2;
         const midY = (from.position.y + to.position.y) / 2;
         const label = new Text({
-          text: blocked ? 'BLOCKED' : 'No common SP',
+          text: 'BLOCKED',
           style: new TextStyle({
             fontSize: 10,
             fill: 0xef4444,
@@ -201,40 +266,41 @@ export class NetworkRenderer {
       container.x = peer.position.x;
       container.y = peer.position.y;
 
+      // Range rings for proximity transports
+      // LAN rings on routers and starlink (they provide LAN coverage); BT/LoRa rings on peers
+      const providesLan = peer.type === 'router' || peer.type === 'starlink';
+      const ringTransports: Transport[] = providesLan
+        ? ['lan', 'bluetooth', 'lora']
+        : ['bluetooth', 'lora'];
+      for (const t of ringTransports) {
+        if (peer.transports.includes(t) && peer.online) {
+          const range = TRANSPORT_RANGE[t];
+          const ring = new Graphics();
+          ring.circle(0, 0, range);
+          ring.stroke({ color: TRANSPORT_COLORS[t], width: 1, alpha: 0.15 });
+          ring.fill({ color: TRANSPORT_COLORS[t], alpha: 0.02 });
+          container.addChild(ring);
+        }
+      }
+
       // Node circle
-      const nodeSize = peer.type === 'message-server' ? 28 : 24;
+      const nodeSize = peer.type === 'isp' ? 18 : peer.type === 'peer' ? 24 : 28;
       const g = new Graphics();
 
       // Background fill
       g.circle(0, 0, nodeSize);
       g.fill({ color: peer.online ? 0x1e293b : 0x0f172a });
 
-      // Segmented border by supported SPs
-      const sps = peer.supportedSPs;
-      const borderWidth = 8;
-      if (!peer.online || sps.length === 0) {
-        g.circle(0, 0, nodeSize);
-        g.stroke({ color: 0x64748b, width: borderWidth });
-      } else if (sps.length === 1) {
-        g.circle(0, 0, nodeSize);
-        g.stroke({ color: SP_COLORS[sps[0]], width: borderWidth });
-      } else {
-        const segmentAngle = (Math.PI * 2) / sps.length;
-        const startOffset = -Math.PI / 2; // start from top
-        for (let i = 0; i < sps.length; i++) {
-          const seg = new Graphics();
-          seg.arc(0, 0, nodeSize, startOffset + i * segmentAngle, startOffset + (i + 1) * segmentAngle);
-          seg.stroke({ color: SP_COLORS[sps[i]], width: borderWidth });
-          container.addChild(seg);
-        }
-      }
+      // Simple border
+      g.circle(0, 0, nodeSize);
+      g.stroke({ color: peer.online ? 0x475569 : 0x334155, width: 2 });
 
       container.addChild(g);
 
       // Icon (simple text representation)
       const icon = new Text({
-        text: peer.type === 'message-server' ? '\u{1F5A5}' : '\u{1F4F1}',
-        style: new TextStyle({ fontSize: 18 }),
+        text: peer.type === 'isp' ? '\u{1F3E2}' : peer.type === 'router' ? '\u{1F310}' : peer.type === 'starlink' ? '\u{1F4E1}' : peer.type === 'dash-server' ? '\u{2601}' : peer.type === 'message-server' ? '\u{1F5A5}' : '\u{1F4F1}',
+        style: new TextStyle({ fontSize: peer.type === 'isp' ? 14 : 18 }),
       });
       icon.anchor.set(0.5);
       icon.y = -1;
@@ -283,57 +349,74 @@ export class NetworkRenderer {
         }
       }
 
-      // Operation dots (small colored circles around the node)
-      const ops = peer.store.operations;
-      if (ops.length > 0) {
-        const maxDots = 8;
-        const displayOps = ops.slice(-maxDots);
-        for (let i = 0; i < displayOps.length; i++) {
-          const angle = (i / Math.min(ops.length, maxDots)) * Math.PI * 2 - Math.PI / 2;
-          const dotRadius = nodeSize + 16;
-          const dot = new Graphics();
-          dot.circle(
-            Math.cos(angle) * dotRadius,
-            Math.sin(angle) * dotRadius,
-            4
-          );
-          const opColor = parseInt(displayOps[i].color.replace('#', ''), 16);
-          dot.fill({ color: opColor });
-          if (displayOps[i].encrypted) {
-            dot.stroke({ color: 0xffffff, width: 1, alpha: 0.5 });
-          }
-          container.addChild(dot);
-        }
+      // Sync status badge
+      const stats = getPeerSyncStats(state, peer.id);
+      if (stats.expected > 0 || stats.stored > 0) {
+        const synced = stats.expected > 0 && stats.received === stats.expected;
+        const missing = stats.expected - stats.received;
 
-        // Count badge if more than maxDots
-        if (ops.length > maxDots) {
-          const badge = new Graphics();
-          badge.roundRect(nodeSize + 8, -nodeSize - 4, 20, 14, 7);
-          badge.fill({ color: 0x3b82f6 });
+        // Badge background
+        const badgeX = nodeSize + 4;
+        const badgeY = -10;
+        const badge = new Graphics();
+
+        if (synced) {
+          // Green checkmark badge
+          badge.roundRect(badgeX, badgeY, 16, 16, 4);
+          badge.fill({ color: 0x22c55e, alpha: 0.9 });
+          container.addChild(badge);
+          const check = new Text({
+            text: '✓',
+            style: new TextStyle({ fontSize: 10, fill: 0xffffff, fontFamily: 'system-ui', fontWeight: 'bold' }),
+          });
+          check.anchor.set(0.5);
+          check.x = badgeX + 8;
+          check.y = badgeY + 8;
+          container.addChild(check);
+        } else if (missing > 0) {
+          // Red badge with missing count
+          const badgeW = missing >= 10 ? 22 : 16;
+          badge.roundRect(badgeX, badgeY, badgeW, 16, 4);
+          badge.fill({ color: 0xef4444, alpha: 0.9 });
+          container.addChild(badge);
           const countText = new Text({
-            text: `${ops.length}`,
-            style: new TextStyle({ fontSize: 9, fill: 0xffffff, fontFamily: 'system-ui' }),
+            text: `${missing}`,
+            style: new TextStyle({ fontSize: 9, fill: 0xffffff, fontFamily: 'system-ui', fontWeight: 'bold' }),
           });
           countText.anchor.set(0.5);
-          countText.x = nodeSize + 18;
-          countText.y = -nodeSize + 3;
-          container.addChild(badge);
+          countText.x = badgeX + badgeW / 2;
+          countText.y = badgeY + 8;
           container.addChild(countText);
+        }
+
+        // Stored count (small, below badge)
+        if (stats.stored > 0) {
+          const storedLabel = new Text({
+            text: `${stats.stored} ops`,
+            style: new TextStyle({ fontSize: 8, fill: 0x64748b, fontFamily: 'system-ui' }),
+          });
+          storedLabel.anchor.set(0.5, 0);
+          storedLabel.x = badgeX + 8;
+          storedLabel.y = badgeY + 18;
+          container.addChild(storedLabel);
         }
       }
 
       // Make interactive
       container.eventMode = 'static';
-      container.cursor = 'pointer';
+      const isFixed = peer.type === 'dash-server' || peer.type === 'isp';
+      container.cursor = isFixed ? 'default' : 'pointer';
 
       const peerId = peer.id;
       container.on('pointerdown', (e: FederatedPointerEvent) => {
-        this.dragTarget = {
-          peerId,
-          offsetX: e.global.x - peer.position.x,
-          offsetY: e.global.y - peer.position.y,
-        };
         this.onPeerSelect?.(peerId);
+        if (!isFixed) {
+          this.dragTarget = {
+            peerId,
+            offsetX: e.global.x - peer.position.x,
+            offsetY: e.global.y - peer.position.y,
+          };
+        }
         e.stopPropagation();
       });
 
@@ -353,7 +436,7 @@ export class NetworkRenderer {
       const y = from.position.y + (to.position.y - from.position.y) * transit.progress;
 
       const dot = new Graphics();
-      const opColor = parseInt(transit.operation.color.replace('#', ''), 16);
+      const opColor = topicColorHex(transit.operation.topicId || transit.operation.id);
       dot.circle(0, 0, 6);
       dot.fill({ color: opColor });
       if (transit.operation.encrypted) {
@@ -377,7 +460,7 @@ export class NetworkRenderer {
   private onDragMove(e: FederatedPointerEvent) {
     if (!this.dragTarget) return;
     const newX = e.global.x - this.dragTarget.offsetX;
-    const newY = e.global.y - this.dragTarget.offsetY;
+    const newY = Math.max(e.global.y - this.dragTarget.offsetY, ISP_BAND_BOTTOM + 20);
     this.onPeerMove?.(this.dragTarget.peerId, newX, newY);
   }
 

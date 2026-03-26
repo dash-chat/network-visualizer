@@ -1,6 +1,6 @@
-import type { SimulationState, LogModelType } from './types';
+import type { SimulationState } from './types';
 import {
-  createInitialState, createPeer, addConnection, addContact, createGroup,
+  createInitialState, createPeer, addContact, createGroup,
   resetIdCounter,
 } from './engine';
 
@@ -8,8 +8,6 @@ export interface Scenario {
   id: string;
   name: string;
   description: string;
-  logModel: LogModelType;
-  splitByGroup?: boolean;
   build: () => SimulationState;
 }
 
@@ -17,18 +15,21 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'two-peers',
     name: '2 Peers Direct',
-    description: 'Two peers connected directly via internet. Basic direct messaging setup.',
-    logModel: 'topic-per-group',
+    description: 'Two peers connected via internet through an ISP.',
     build() {
       resetIdCounter();
       let state = createInitialState();
+      // ISP
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
+      // Dash Server
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
+      // Peers
       let r = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 300, y: 350 } });
       state = r.state;
       const alice = r.peerId;
       r = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 700, y: 350 } });
       state = r.state;
       const bob = r.peerId;
-      state = addConnection(state, alice, bob, 'internet');
       state = addContact(state, alice, bob);
       return state;
     },
@@ -36,14 +37,15 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'group-of-5',
     name: 'Group of 5',
-    description: 'Five peers in a mesh, forming a group chat.',
-    logModel: 'topic-per-group',
+    description: 'Five peers forming a group chat, connected through an ISP and Dash Server.',
     build() {
       resetIdCounter();
       let state = createInitialState();
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
       const ids: string[] = [];
       const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
-      const cx = 500, cy = 350, radius = 200;
+      const cx = 500, cy = 400, radius = 180;
       for (let i = 0; i < 5; i++) {
         const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
         const r = createPeer(state, {
@@ -54,47 +56,30 @@ export const SCENARIOS: Scenario[] = [
         state = r.state;
         ids.push(r.peerId);
       }
-      // Mesh connections
-      for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-          state = addConnection(state, ids[i], ids[j], 'internet');
-        }
-      }
-      // Add contacts
       for (let i = 0; i < ids.length; i++) {
         for (let j = i + 1; j < ids.length; j++) {
           state = addContact(state, ids[i], ids[j]);
         }
       }
-      // Create group
       state = createGroup(state, ids[0], 'Team Chat', ids.slice(1));
       return state;
     },
   },
   {
-    id: 'message-server',
-    name: 'Internet + Message Server',
-    description: 'Three peers connected through a central message server for offline message delivery.',
-    logModel: 'topic-per-group',
+    id: 'dash-server',
+    name: 'Internet + Dash Server',
+    description: 'Three peers connected through an ISP to a Dash Chat cloud server.',
     build() {
       resetIdCounter();
       let state = createInitialState();
-      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 200, y: 250 } });
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
+      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 200, y: 300 } });
       state = r1.state;
-      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 200, y: 450 } });
+      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 200, y: 500 } });
       state = r2.state;
-      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 800, y: 350 } });
+      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 800, y: 400 } });
       state = r3.state;
-      const rs = createPeer(state, {
-        label: 'Mail Server',
-        type: 'message-server',
-        position: { x: 500, y: 350 },
-        sps: ['encrypted-group'],
-      });
-      state = rs.state;
-      state = addConnection(state, r1.peerId, rs.peerId, 'internet');
-      state = addConnection(state, r2.peerId, rs.peerId, 'internet');
-      state = addConnection(state, r3.peerId, rs.peerId, 'internet');
       state = addContact(state, r1.peerId, r2.peerId);
       state = addContact(state, r1.peerId, r3.peerId);
       return state;
@@ -103,22 +88,22 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'lan-mesh',
     name: 'LAN Mesh Relay',
-    description: 'Four peers connected via LAN in a chain, demonstrating multi-hop relay.',
-    logModel: 'topic-per-group',
+    description: 'Four LAN-only peers and two routers. No ISP — messages relay hop by hop through routers.',
     build() {
       resetIdCounter();
       let state = createInitialState();
-      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 150, y: 350 }, transports: ['lan'] });
+      const rt1 = createPeer(state, { label: 'Router A', type: 'router', position: { x: 300, y: 350 } });
+      state = rt1.state;
+      const rt2 = createPeer(state, { label: 'Router B', type: 'router', position: { x: 700, y: 350 } });
+      state = rt2.state;
+      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 200, y: 300 }, transports: ['lan'] });
       state = r1.state;
       const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 400, y: 250 }, transports: ['lan'] });
       state = r2.state;
-      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 650, y: 450 }, transports: ['lan'] });
+      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 600, y: 400 }, transports: ['lan'] });
       state = r3.state;
-      const r4 = createPeer(state, { label: 'Dave', type: 'peer', position: { x: 900, y: 350 }, transports: ['lan'] });
+      const r4 = createPeer(state, { label: 'Dave', type: 'peer', position: { x: 800, y: 300 }, transports: ['lan'] });
       state = r4.state;
-      state = addConnection(state, r1.peerId, r2.peerId, 'lan');
-      state = addConnection(state, r2.peerId, r3.peerId, 'lan');
-      state = addConnection(state, r3.peerId, r4.peerId, 'lan');
       state = addContact(state, r1.peerId, r4.peerId);
       state = addContact(state, r2.peerId, r3.peerId);
       return state;
@@ -127,41 +112,32 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'mixed',
     name: 'Mixed Topology',
-    description: 'Peers with different transports and SPs. Shows how protocols interact across varied connections.',
-    logModel: 'topic-per-group',
+    description: 'Peers with different transports and SPs. Internet devices connect through ISP; LAN/Bluetooth peers connect by proximity.',
     build() {
       resetIdCounter();
       let state = createInitialState();
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
       const r1 = createPeer(state, {
-        label: 'Alice', type: 'peer', position: { x: 150, y: 300 },
-        transports: ['internet', 'lan'], sps: ['topic-sync', 'encrypted-group'],
+        label: 'Alice', type: 'peer', position: { x: 150, y: 350 },
+        transports: ['internet', 'lan'], sps: ['log-height-sync', 'kdf-envelope-sync'],
       });
       state = r1.state;
       const r2 = createPeer(state, {
-        label: 'Bob', type: 'peer', position: { x: 500, y: 150 },
-        transports: ['internet'], sps: ['encrypted-group', 'encrypted-only'],
+        label: 'Bob', type: 'peer', position: { x: 500, y: 200 },
+        transports: ['internet'], sps: ['kdf-envelope-sync'],
       });
       state = r2.state;
       const r3 = createPeer(state, {
-        label: 'Carol', type: 'peer', position: { x: 500, y: 450 },
-        transports: ['lan', 'bluetooth'], sps: ['topic-sync'],
+        label: 'Carol', type: 'peer', position: { x: 500, y: 500 },
+        transports: ['lan', 'bluetooth'], sps: ['log-height-sync'],
       });
       state = r3.state;
       const r4 = createPeer(state, {
-        label: 'Dave', type: 'peer', position: { x: 850, y: 300 },
-        transports: ['internet', 'bluetooth'], sps: ['encrypted-only'],
+        label: 'Dave', type: 'peer', position: { x: 850, y: 350 },
+        transports: ['internet', 'bluetooth'], sps: ['kdf-envelope-sync'],
       });
       state = r4.state;
-      const rs = createPeer(state, {
-        label: 'Server', type: 'message-server', position: { x: 500, y: 300 },
-        sps: ['encrypted-group'],
-      });
-      state = rs.state;
-      state = addConnection(state, r1.peerId, rs.peerId, 'internet');
-      state = addConnection(state, r2.peerId, rs.peerId, 'internet');
-      state = addConnection(state, r1.peerId, r3.peerId, 'lan');
-      state = addConnection(state, r3.peerId, r4.peerId, 'bluetooth');
-      state = addConnection(state, r2.peerId, r4.peerId, 'internet');
       state = addContact(state, r1.peerId, r2.peerId);
       state = addContact(state, r1.peerId, r3.peerId);
       state = addContact(state, r3.peerId, r4.peerId);
@@ -171,148 +147,86 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'intranet-shutdown',
     name: 'National Intranet Shutdown',
-    description: 'Simulates an internet shutdown. Some peers are in the intranet zone with a local message server, others are global. Toggle the shutdown to see how communication degrades.',
-    logModel: 'topic-per-group',
+    description: 'Two countries with their own ISPs. Toggle shutdown to disconnect the intranet country from the cloud. Starlink bypasses the shutdown.',
     build() {
       resetIdCounter();
       let state = createInitialState();
+      // Dash Server (cloud)
+      state = createPeer(state, {
+        label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 },
+      }).state;
+      // Global country ISP (left)
+      state = createPeer(state, {
+        label: 'Global ISP', type: 'isp', position: { x: 250, y: 105 }, zone: 'global',
+      }).state;
+      // Intranet country ISP (right)
+      state = createPeer(state, {
+        label: 'Intranet ISP', type: 'isp', position: { x: 750, y: 105 }, zone: 'intranet',
+      }).state;
       // Global peers
       const g1 = createPeer(state, {
-        label: 'Alice (Global)', type: 'peer', position: { x: 150, y: 200 },
-        zone: 'global',
+        label: 'Alice (Global)', type: 'peer', position: { x: 150, y: 250 },
+        transports: ['internet', 'lan'], zone: 'global',
       });
       state = g1.state;
       const g2 = createPeer(state, {
-        label: 'Bob (Global)', type: 'peer', position: { x: 150, y: 500 },
-        zone: 'global',
+        label: 'Bob (Global)', type: 'peer', position: { x: 150, y: 550 },
+        transports: ['internet', 'lan'], zone: 'global',
       });
       state = g2.state;
-      // Global message server
-      const gs = createPeer(state, {
-        label: 'Global Server', type: 'message-server', position: { x: 350, y: 350 },
-        zone: 'global', sps: ['encrypted-group'],
-      });
-      state = gs.state;
       // Intranet peers
       const i1 = createPeer(state, {
-        label: 'Carol (Intranet)', type: 'peer', position: { x: 650, y: 200 },
-        zone: 'intranet',
+        label: 'Carol (Intranet)', type: 'peer', position: { x: 650, y: 250 },
+        transports: ['internet', 'lan'], zone: 'intranet',
       });
       state = i1.state;
       const i2 = createPeer(state, {
-        label: 'Dave (Intranet)', type: 'peer', position: { x: 650, y: 500 },
-        zone: 'intranet',
+        label: 'Dave (Intranet)', type: 'peer', position: { x: 650, y: 550 },
+        transports: ['internet', 'lan'], zone: 'intranet',
       });
       state = i2.state;
-      // Intranet message server
-      const is = createPeer(state, {
-        label: 'Local Server', type: 'message-server', position: { x: 850, y: 350 },
-        zone: 'intranet', sps: ['encrypted-group'],
+      // Starlink in intranet zone — bypasses shutdown
+      const sl = createPeer(state, {
+        label: 'Eve (Starlink)', type: 'starlink', position: { x: 500, y: 400 },
+        transports: ['internet', 'bluetooth'], zone: 'intranet',
       });
-      state = is.state;
-
-      // Connections
-      state = addConnection(state, g1.peerId, gs.peerId, 'internet');
-      state = addConnection(state, g2.peerId, gs.peerId, 'internet');
-      state = addConnection(state, i1.peerId, gs.peerId, 'internet'); // crosses zones
-      state = addConnection(state, i1.peerId, is.peerId, 'internet');
-      state = addConnection(state, i2.peerId, is.peerId, 'internet');
-      state = addConnection(state, i1.peerId, i2.peerId, 'lan');
+      state = sl.state;
 
       state = addContact(state, g1.peerId, i1.peerId);
       state = addContact(state, g1.peerId, g2.peerId);
       state = addContact(state, i1.peerId, i2.peerId);
+      state = addContact(state, i1.peerId, sl.peerId);
 
       return state;
     },
   },
-  // --- Shared Peer Logs scenarios ---
   {
-    id: 'contact-chain',
-    name: 'Contact Chain (Peer Logs)',
-    description: 'Four peers in a chain using shared peer logs. Operations propagate via the follow graph — contacts-of-contacts enable 2-hop discovery.',
-    logModel: 'shared-peer-logs',
+    id: 'envelope-relay',
+    name: 'KDF Envelope Relay',
+    description: 'Three peers using KDF envelope sync through ISP and Dash Server.',
     build() {
       resetIdCounter();
       let state = createInitialState();
-      state = { ...state, logModel: 'shared-peer-logs' };
-      // A — B — C — D chain
-      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 150, y: 350 } });
-      state = r1.state;
-      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 400, y: 250 } });
-      state = r2.state;
-      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 650, y: 450 } });
-      state = r3.state;
-      const r4 = createPeer(state, { label: 'Dave', type: 'peer', position: { x: 900, y: 350 } });
-      state = r4.state;
-      // Chain connections
-      state = addConnection(state, r1.peerId, r2.peerId, 'internet');
-      state = addConnection(state, r2.peerId, r3.peerId, 'internet');
-      state = addConnection(state, r3.peerId, r4.peerId, 'internet');
-      // Contacts: each adjacent pair
-      state = addContact(state, r1.peerId, r2.peerId);
-      state = addContact(state, r2.peerId, r3.peerId);
-      state = addContact(state, r3.peerId, r4.peerId);
-      return state;
-    },
-  },
-  {
-    id: 'gossip-relay',
-    name: 'Gossip Relay (Peer Logs)',
-    description: 'Hub-and-spoke with shared peer logs. A central hub peer relays operations. Contacts-of-contacts through the hub enable discovery across spokes.',
-    logModel: 'shared-peer-logs',
-    build() {
-      resetIdCounter();
-      let state = createInitialState();
-      state = { ...state, logModel: 'shared-peer-logs' };
-      // Hub in center, 4 spokes
-      const hub = createPeer(state, { label: 'Hub', type: 'peer', position: { x: 500, y: 350 } });
-      state = hub.state;
-      const names = ['Alice', 'Bob', 'Carol', 'Dave'];
-      const positions = [
-        { x: 200, y: 200 }, { x: 800, y: 200 },
-        { x: 200, y: 500 }, { x: 800, y: 500 },
-      ];
-      const spokeIds: string[] = [];
-      for (let i = 0; i < 4; i++) {
-        const r = createPeer(state, { label: names[i], type: 'peer', position: positions[i] });
-        state = r.state;
-        spokeIds.push(r.peerId);
-        state = addConnection(state, r.peerId, hub.peerId, 'internet');
-        state = addContact(state, r.peerId, hub.peerId);
-      }
-      // Alice and Bob are also direct contacts
-      state = addContact(state, spokeIds[0], spokeIds[1]);
-      return state;
-    },
-  },
-  {
-    id: 'peer-logs-server',
-    name: 'Peer Logs + Server',
-    description: 'Shared peer logs with a message server. The server follows all topics of connected peers, enabling offline delivery across the follow graph.',
-    logModel: 'shared-peer-logs',
-    build() {
-      resetIdCounter();
-      let state = createInitialState();
-      state = { ...state, logModel: 'shared-peer-logs' };
-      const r1 = createPeer(state, { label: 'Alice', type: 'peer', position: { x: 200, y: 250 } });
-      state = r1.state;
-      const r2 = createPeer(state, { label: 'Bob', type: 'peer', position: { x: 200, y: 450 } });
-      state = r2.state;
-      const r3 = createPeer(state, { label: 'Carol', type: 'peer', position: { x: 800, y: 350 } });
-      state = r3.state;
-      const rs = createPeer(state, {
-        label: 'Mail Server',
-        type: 'message-server',
-        position: { x: 500, y: 350 },
-        sps: ['topic-sync'],
+      state = createPeer(state, { label: 'ISP', type: 'isp', position: { x: 500, y: 105 } }).state;
+      state = createPeer(state, { label: 'Dash Server', type: 'dash-server', position: { x: 500, y: 35 } }).state;
+      const r1 = createPeer(state, {
+        label: 'Alice', type: 'peer', position: { x: 200, y: 250 },
+        sps: ['kdf-envelope-sync'],
       });
-      state = rs.state;
-      state = addConnection(state, r1.peerId, rs.peerId, 'internet');
-      state = addConnection(state, r2.peerId, rs.peerId, 'internet');
-      state = addConnection(state, r3.peerId, rs.peerId, 'internet');
+      state = r1.state;
+      const r2 = createPeer(state, {
+        label: 'Bob', type: 'peer', position: { x: 200, y: 550 },
+        sps: ['kdf-envelope-sync'],
+      });
+      state = r2.state;
+      const r3 = createPeer(state, {
+        label: 'Carol', type: 'peer', position: { x: 800, y: 400 },
+        sps: ['kdf-envelope-sync'],
+      });
+      state = r3.state;
       state = addContact(state, r1.peerId, r2.peerId);
       state = addContact(state, r1.peerId, r3.peerId);
+      state = createGroup(state, r1.peerId, 'Private Group', [r2.peerId, r3.peerId]);
       return state;
     },
   },
